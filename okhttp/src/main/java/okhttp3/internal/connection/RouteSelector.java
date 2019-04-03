@@ -37,7 +37,7 @@ import okhttp3.internal.Util;
  * Selects routes to connect to an origin server. Each connection requires a choice of proxy server,
  * IP address, and TLS mode. Connections may also be recycled.
  */
-public final class RouteSelector {
+final class RouteSelector {
   private final Address address;
   private final RouteDatabase routeDatabase;
   private final Call call;
@@ -53,7 +53,7 @@ public final class RouteSelector {
   /* State for negotiating failed routes */
   private final List<Route> postponedRoutes = new ArrayList<>();
 
-  public RouteSelector(Address address, RouteDatabase routeDatabase, Call call,
+  RouteSelector(Address address, RouteDatabase routeDatabase, Call call,
       EventListener eventListener) {
     this.address = address;
     this.routeDatabase = routeDatabase;
@@ -103,20 +103,6 @@ public final class RouteSelector {
     }
 
     return new Selection(routes);
-  }
-
-  /**
-   * Clients should invoke this method when they encounter a connectivity failure on a connection
-   * returned by this route selector.
-   */
-  public void connectFailed(Route failedRoute, IOException failure) {
-    if (failedRoute.proxy().type() != Proxy.Type.DIRECT && address.proxySelector() != null) {
-      // Tell the proxy selector when we fail to connect on a fresh connection.
-      address.proxySelector().connectFailed(
-          address.url().uri(), failedRoute.proxy().address(), failure);
-    }
-
-    routeDatabase.failed(failedRoute);
   }
 
   /** Prepares the proxy servers to try. */

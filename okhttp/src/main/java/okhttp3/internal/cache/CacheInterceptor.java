@@ -17,14 +17,14 @@
 package okhttp3.internal.cache;
 
 import java.io.IOException;
+import javax.annotation.Nullable;
 import okhttp3.Headers;
 import okhttp3.Interceptor;
 import okhttp3.Protocol;
 import okhttp3.Request;
 import okhttp3.Response;
-import okhttp3.internal.Internal;
 import okhttp3.internal.Util;
-import okhttp3.internal.http.HttpCodec;
+import okhttp3.internal.http.ExchangeCodec;
 import okhttp3.internal.http.HttpHeaders;
 import okhttp3.internal.http.HttpMethod;
 import okhttp3.internal.http.RealResponseBody;
@@ -38,14 +38,15 @@ import okio.Timeout;
 
 import static java.net.HttpURLConnection.HTTP_NOT_MODIFIED;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
+import static okhttp3.internal.InternalKtKt.addHeaderLenient;
 import static okhttp3.internal.Util.closeQuietly;
 import static okhttp3.internal.Util.discard;
 
 /** Serves requests from the cache and writes responses to the cache. */
 public final class CacheInterceptor implements Interceptor {
-  final InternalCache cache;
+  final @Nullable InternalCache cache;
 
-  public CacheInterceptor(InternalCache cache) {
+  public CacheInterceptor(@Nullable InternalCache cache) {
     this.cache = cache;
   }
 
@@ -199,7 +200,7 @@ public final class CacheInterceptor implements Interceptor {
 
       @Override public void close() throws IOException {
         if (!cacheRequestClosed
-            && !discard(this, HttpCodec.DISCARD_STREAM_TIMEOUT_MILLIS, MILLISECONDS)) {
+            && !discard(this, ExchangeCodec.DISCARD_STREAM_TIMEOUT_MILLIS, MILLISECONDS)) {
           cacheRequestClosed = true;
           cacheRequest.abort();
         }
@@ -224,16 +225,17 @@ public final class CacheInterceptor implements Interceptor {
       if ("Warning".equalsIgnoreCase(fieldName) && value.startsWith("1")) {
         continue; // Drop 100-level freshness warnings.
       }
-      if (isContentSpecificHeader(fieldName) || !isEndToEnd(fieldName)
-              || networkHeaders.get(fieldName) == null) {
-        Internal.instance.addLenient(result, fieldName, value);
+      if (isContentSpecificHeader(fieldName)
+          || !isEndToEnd(fieldName)
+          || networkHeaders.get(fieldName) == null) {
+        addHeaderLenient(result, fieldName, value);
       }
     }
 
     for (int i = 0, size = networkHeaders.size(); i < size; i++) {
       String fieldName = networkHeaders.name(i);
       if (!isContentSpecificHeader(fieldName) && isEndToEnd(fieldName)) {
-        Internal.instance.addLenient(result, fieldName, networkHeaders.value(i));
+        addHeaderLenient(result, fieldName, networkHeaders.value(i));
       }
     }
 

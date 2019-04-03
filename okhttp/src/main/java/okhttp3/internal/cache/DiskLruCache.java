@@ -167,6 +167,7 @@ public final class DiskLruCache implements Closeable, Flushable {
   /** Used to run 'cleanupRunnable' for journal rebuilds. */
   private final Executor executor;
   private final Runnable cleanupRunnable = new Runnable() {
+    @Override
     public void run() {
       synchronized (DiskLruCache.this) {
         if (!initialized | closed) {
@@ -267,14 +268,13 @@ public final class DiskLruCache implements Closeable, Flushable {
 
     // Use a single background thread to evict entries.
     Executor executor = new ThreadPoolExecutor(0, 1, 60L, TimeUnit.SECONDS,
-        new LinkedBlockingQueue<Runnable>(), Util.threadFactory("OkHttp DiskLruCache", true));
+        new LinkedBlockingQueue<>(), Util.threadFactory("OkHttp DiskLruCache", true));
 
     return new DiskLruCache(fileSystem, directory, appVersion, valueCount, maxSize, executor);
   }
 
   private void readJournal() throws IOException {
-    BufferedSource source = Okio.buffer(fileSystem.source(journalFile));
-    try {
+    try (BufferedSource source = Okio.buffer(fileSystem.source(journalFile))) {
       String magic = source.readUtf8LineStrict();
       String version = source.readUtf8LineStrict();
       String appVersionString = source.readUtf8LineStrict();
@@ -306,8 +306,6 @@ public final class DiskLruCache implements Closeable, Flushable {
       } else {
         journalWriter = newJournalWriter();
       }
-    } finally {
-      Util.closeQuietly(source);
     }
   }
 
@@ -393,8 +391,7 @@ public final class DiskLruCache implements Closeable, Flushable {
       journalWriter.close();
     }
 
-    BufferedSink writer = Okio.buffer(fileSystem.sink(journalFileTmp));
-    try {
+    try (BufferedSink writer = Okio.buffer(fileSystem.sink(journalFileTmp))) {
       writer.writeUtf8(MAGIC).writeByte('\n');
       writer.writeUtf8(VERSION_1).writeByte('\n');
       writer.writeDecimalLong(appVersion).writeByte('\n');
@@ -413,8 +410,6 @@ public final class DiskLruCache implements Closeable, Flushable {
           writer.writeByte('\n');
         }
       }
-    } finally {
-      writer.close();
     }
 
     if (fileSystem.exists(journalFile)) {
@@ -668,7 +663,7 @@ public final class DiskLruCache implements Closeable, Flushable {
       return;
     }
     // Copying for safe iteration.
-    for (Entry entry : lruEntries.values().toArray(new Entry[lruEntries.size()])) {
+    for (Entry entry : lruEntries.values().toArray(new Entry[0])) {
       if (entry.currentEditor != null) {
         entry.currentEditor.abort();
       }
@@ -703,7 +698,7 @@ public final class DiskLruCache implements Closeable, Flushable {
   public synchronized void evictAll() throws IOException {
     initialize();
     // Copying for safe iteration.
-    for (Entry entry : lruEntries.values().toArray(new Entry[lruEntries.size()])) {
+    for (Entry entry : lruEntries.values().toArray(new Entry[0])) {
       removeEntry(entry);
     }
     mostRecentTrimFailed = false;
@@ -820,6 +815,7 @@ public final class DiskLruCache implements Closeable, Flushable {
       return lengths[index];
     }
 
+    @Override
     public void close() {
       for (Source in : sources) {
         Util.closeQuietly(in);

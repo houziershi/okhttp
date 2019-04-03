@@ -39,7 +39,7 @@ import okhttp3.WebSocket;
 import okhttp3.WebSocketListener;
 import okhttp3.internal.Internal;
 import okhttp3.internal.Util;
-import okhttp3.internal.connection.StreamAllocation;
+import okhttp3.internal.connection.Exchange;
 import okio.BufferedSink;
 import okio.BufferedSource;
 import okio.ByteString;
@@ -153,14 +153,12 @@ public final class RealWebSocket implements WebSocket, WebSocketReader.FrameCall
     random.nextBytes(nonce);
     this.key = ByteString.of(nonce).base64();
 
-    this.writerRunnable = new Runnable() {
-      @Override public void run() {
-        try {
-          while (writeOneFrame()) {
-          }
-        } catch (IOException e) {
-          failWebSocket(e, null);
+    this.writerRunnable = () -> {
+      try {
+        while (writeOneFrame()) {
         }
+      } catch (IOException e) {
+        failWebSocket(e, null);
       }
     };
   }
@@ -191,25 +189,23 @@ public final class RealWebSocket implements WebSocket, WebSocketReader.FrameCall
     call = Internal.instance.newWebSocketCall(client, request);
     call.enqueue(new Callback() {
       @Override public void onResponse(Call call, Response response) {
+        Exchange exchange = Internal.instance.exchange(response);
+        Streams streams;
         try {
-          checkResponse(response);
-        } catch (ProtocolException e) {
+          checkUpgradeSuccess(response, exchange);
+          streams = exchange.newWebSocketStreams();
+        } catch (IOException e) {
+          if (exchange != null) exchange.webSocketUpgradeFailed();
           failWebSocket(e, response);
           closeQuietly(response);
           return;
         }
 
-        // Promote the HTTP streams into web socket streams.
-        StreamAllocation streamAllocation = Internal.instance.streamAllocation(call);
-        streamAllocation.noNewStreams(); // Prevent connection pooling!
-        Streams streams = streamAllocation.connection().newWebSocketStreams(streamAllocation);
-
         // Process all web socket messages.
         try {
-          listener.onOpen(RealWebSocket.this, response);
           String name = "OkHttp WebSocket " + request.url().redact();
           initReaderAndWriter(name, streams);
-          streamAllocation.connection().socket().setSoTimeout(0);
+          listener.onOpen(RealWebSocket.this, response);
           loopReader();
         } catch (Exception e) {
           failWebSocket(e, null);
@@ -222,7 +218,7 @@ public final class RealWebSocket implements WebSocket, WebSocketReader.FrameCall
     });
   }
 
-  void checkResponse(Response response) throws ProtocolException {
+  void checkUpgradeSuccess(Response response, @Nullable Exchange exchange) throws IOException {
     if (response.code() != 101) {
       throw new ProtocolException("Expected HTTP 101 response but was '"
           + response.code() + " " + response.message() + "'");
@@ -246,6 +242,10 @@ public final class RealWebSocket implements WebSocket, WebSocketReader.FrameCall
     if (!acceptExpected.equals(headerAccept)) {
       throw new ProtocolException("Expected 'Sec-WebSocket-Accept' header value '"
           + acceptExpected + "' but was '" + headerAccept + "'");
+    }
+
+    if (exchange == null) {
+      throw new ProtocolException("Web Socket exchange missing: bad interceptor?");
     }
   }
 
